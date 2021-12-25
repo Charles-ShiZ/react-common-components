@@ -1,0 +1,29 @@
+{
+  "presets": [
+    [
+      "@babel/preset-env", 
+      {
+        "targets": "> 0.25%, not dead"
+      }
+    ],
+    "@babel/preset-react",
+    [
+      "@babel/preset-typescript",
+      {
+        "isTSX":true,
+        "allExtensions":true
+      }
+    ]
+  ],
+  "plugins":[
+    "@babel/plugin-transform-runtime",
+    "@babel/plugin-syntax-dynamic-import",
+    [
+      "import",				// babel-plugin-import按需加载插件
+      {
+	      "libraryName": "antd",	// 需要按需加载的包的名字
+	      "style": "css"		// true - 加载antd的less样式文件， 'css' - 加载antd的css样式文件
+      }
+    ]
+  ] // 对应polyfill
+}
