@@ -10,14 +10,12 @@ function fileToBase64Promise(file: File): Promise<string> {
     reader.onerror = (e) => reject(e);
   });
 }
-export async function fileToBase64(files: FileList | File[] | File): Promise<string[] | string> {
-  if (Array.isArray(files) || files instanceof FileList) {
-    return await Promise.all(Array.from(files).map(async (file) => await fileToBase64Promise(file)));
-  } else {
-    return await fileToBase64Promise(files);
-  }
+
+export async function fileToBase64(file: File) {
+  return await fileToBase64Promise(file);
 }
-export function base64ToMd5(base64:string) {
+
+export function base64ToMd5(base64: string) {
   return md5(base64);
 }
 
@@ -40,17 +38,47 @@ export const BolbToFile = (blob: BlobPart, name: string, mime: string) => {
   return file;
 };
 
-export async function resolvePsd(file: File) {
+export async function psdResolve(file: File) {
   window.Buffer = Buffer; // psd.js 源码没有将 Buffer 赋值给 window，需要手动赋值，不然会报错 Buffer不存在的错误
   const psdUrl = (window.URL || window.webkitURL).createObjectURL(file);
   const psdEvt = await PSD.fromURL(psdUrl);
   const imageBase64 = psdEvt.image.toBase64();
-  return {
-    file,
-    layers: psdEvt.tree().descendants(),
-    image: {
-      base64: imageBase64,
-      file: BolbToFile(dataURLtoBlob(imageBase64), `psdImage_${+new Date()}`, "image/png")
-    }
-  };
+  const layers = psdEvt.tree().descendants();
+  const layerNameList = (layers || []).map(layer => layer.name) as string[];
+  const colorMode = psdEvt.header.mode; // 颜色模式（3 表示 RGB模式，4 表示 CMYK模式）
+  const uid = base64ToMd5(imageBase64); // psd 文件必须使用其对应image的base64来生成唯一标识符。如果直接使用psd文件的base64来生成，在不同的操作系统下，md5的结果会有不同。
+  try {
+    const treeExport = psdEvt.tree().export();
+    return {
+      uid,
+      file,
+      layers,
+      layerNameList,
+      colorMode,
+      width: psdEvt.image.width(),
+      height: psdEvt.image.height(),
+      treeExport,
+      image: {
+        base64: imageBase64,
+        file: BolbToFile(dataURLtoBlob(imageBase64), `psdImage_${+new Date()}`, "image/png")
+      }
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      uid,
+      file,
+      layers,
+      layerNameList,
+      colorMode,
+      width: psdEvt.image.width(),
+      height: psdEvt.image.height(),
+      treeExport: null,
+      image: {
+        base64: imageBase64,
+        file: BolbToFile(dataURLtoBlob(imageBase64), `psdImage_${+new Date()}`, "image/png")
+      }
+    };
+  }
+
 }

@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { UploadProps, TCurrFiles, EWidth } from "./types";
-import { resolvePsd } from "./utils";
+import React, { useEffect, useState } from "react";
+import { UploadProps, UploadFile, EWidth } from "./types";
+import { psdResolve, fileToBase64, base64ToMd5} from "./utils";
 
 export default function Upload({
   type,
@@ -8,55 +8,71 @@ export default function Upload({
   children,
   multiple = true,
   style = {},
-  size = "medium",
+  size = "small",
   value = [],
 }: UploadProps) {
-  const valueFromProps: TCurrFiles[] = (() => {
-    if (value instanceof FileList || Array.isArray(value)) {
-      return Array.from(value).map((item) => {
-        if (item instanceof File) {
-          return { file: item };
-        } else {
-          return { image: { base64: item } };
-        }
-      });
-    } else {
-      if (value instanceof File) {
-        return new Array({ file: value });
-      } else {
-        return new Array({ image: { base64: value } });
-      }
-    }
-  })();
   const width = EWidth[size];
-  const uploadId = +new Date();
-  const [currFiles, setCurrFiles] = useState<Set<TCurrFiles>>(
-    new Set(valueFromProps)
-  );
-  const accept = {
-    image: "",
-    // psd: 'application/vnd.adobe.photoshop',
-    psd: ".psd",
+  const uploadCompId = +new Date();
+  const [images, setImages] = useState<{ src: string, loaded: boolean }[]>([]);
+  useEffect(() => {
+    if (value.length > images.length) {
+      const newImages = value.slice(images.length).map(uploadFile => ({
+        src:uploadFile.image,
+        loaded:false
+      }));
+      newImages.forEach(({src},index) => {
+        const image = new Image();
+        image.src = src;
+        image.onload = () => {
+          newImages[index].loaded = true;
+          setImages([...images, ...newImages]);
+        };
+      });
+    }
+  }, [value]);
+  const getUploadFileList = async (files: FileList) => {
+    const uploadFileList = await Promise.all((() => {
+      const cacheUids = [];
+      const uploadFileList = Array.from(files).map(async (file) => {
+        const fileBase64 = await fileToBase64(file);
+        const uploadFile: UploadFile = {
+          uid: "", type, file, fileBase64, image: fileBase64,
+          name: file.name,
+          size: file.size,
+        };
+        if (type === "psd") {
+          const { uid, layers, layerNameList, colorMode, width, height, treeExport, image } = await psdResolve(file);
+          uploadFile.uid = uid;
+          uploadFile.image = image.base64;
+          uploadFile.psd = { layers, layerNameList, colorMode, width, height, treeExport };
+        } else {
+          uploadFile.uid = base64ToMd5(fileBase64);
+        }
+        if ([...value.map(v => v.uid), ...cacheUids].find(uid => uid === uploadFile.uid)) {
+          return null;
+        }
+        cacheUids.push(uploadFile.uid);
+        return uploadFile;
+      });
+      return uploadFileList;
+    })());
+    return uploadFileList.filter(i => i);
   };
   return (
     <form style={{ display: "inline-block" }}>
-      <label htmlFor={`fileUpload_${uploadId}`}>
+      <label htmlFor={`fileUpload_${uploadCompId}`}>
         <input
-          id={`fileUpload_${uploadId}`}
+          id={`fileUpload_${uploadCompId}`}
           type="file"
           multiple={multiple}
-          accept={accept[type]}
+          accept={`.${type}`}
           value="" // 必须设置为空值，保证 input 不会缓存数据，导致无法连续导入相同文件
           style={{
             display: "none",
           }}
           onChange={async (e) => {
             const { files } = e.target;
-            const resolvedPsds = await Promise.all(
-              Array.from(files).map(async (file) => await resolvePsd(file))
-            );
-            setCurrFiles(new Set([...currFiles, ...resolvedPsds]));
-            onChange(resolvedPsds);
+            onChange([...value, ...await getUploadFileList(files)]);
           }}
         />
         <div style={style}>
@@ -66,9 +82,9 @@ export default function Upload({
                 display: "flex",
               }}
             >
-              {Array.from(currFiles).map((file, index) => (
+              {value.filter((_, i) => images[i]?.loaded).map((uploadFile, i) => (
                 <div
-                  key={index}
+                  key={uploadFile.uid}
                   onClick={(e) => {
                     e.preventDefault();
                   }}
@@ -100,9 +116,9 @@ export default function Upload({
                     }}
                     onClick={(e) => {
                       e.preventDefault();
-                      const newFiles = new Set(currFiles);
-                      newFiles.delete(file);
-                      setCurrFiles(newFiles);
+                      const newUploadFileList = value.filter((item, j) => i !== j);
+                      console.log(newUploadFileList);
+                      onChange(newUploadFileList);
                     }}
                   >
                     <svg width="100%" height="100%" viewBox="0 0 400 400">
@@ -113,7 +129,7 @@ export default function Upload({
                       />
                     </svg>
                   </div>
-                  <img src={file.image.base64} height="100%" alt="" />
+                  <img src={uploadFile.image} height="100%" alt="" />
                 </div>
               ))}
               <div
